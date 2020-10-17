@@ -246,6 +246,77 @@ static void clear(void) {
     }
 }
 
+static int do_brmatch = 0;
+static void set_brmatch() {
+    do_brmatch = 1;
+}
+
+static void clr_brmatch() {
+    do_brmatch = 0;
+}
+
+static void do_br_match(char *_buf, int _len, JanetBuffer *b) {
+    if (do_brmatch) {
+        char op_open, op_close;
+        int match_to_right = 0;
+        op_open = _buf[gbl_pos];
+        if (op_open == '(') {
+            op_close = ')';
+            match_to_right = 1;
+        } else if (op_open == ')') {
+            op_close = '(';
+        } else if (op_open == '[') {
+            op_close = ']';
+            match_to_right = 1;
+        } else if (op_open == ']') {
+            op_close = '[';
+        } else if (op_open == '{') {
+            op_close = '}';
+            match_to_right = 1;
+        } else if (op_open == '}') {
+            op_close = '{';
+        } else {
+            goto output_normal;
+        }
+        char ocb[32];
+        // snprintf(ocb,32,"\x1b[4m%c\x1b[0m",op_close); // underline
+        snprintf(ocb, 32, "\x1b[32m%c\x1b[0m", op_close); // color
+        int k, kstop;
+        if (match_to_right) {
+            k = gbl_pos + 1;
+            kstop = _len;
+        } else {
+            k = (gbl_pos - 1);
+            kstop = -1;
+        }
+        int bs = 1;
+        while (k != kstop) {
+            if (_buf[k] == op_close) {
+                --bs;
+            } else if (_buf[k] == op_open) {
+                ++bs;
+            }
+            if (bs == 0) {
+                if (k > 0)
+                    janet_buffer_push_bytes(b, (uint8_t *) _buf, k);
+                janet_buffer_push_cstring(b, ocb);
+                if (k < _len - 1) {
+                    janet_buffer_push_bytes(b, ((uint8_t *) _buf) + k + 1, _len - (k + 1));
+                }
+                return;
+            }
+            if (match_to_right) {
+                ++k;
+            } else {
+                --k;
+            }
+        }
+        goto output_normal;
+    }
+output_normal:
+    janet_buffer_push_bytes(b, (uint8_t *) _buf, _len);
+}
+
 static void refresh(void) {
     char seq[64];
     JanetBuffer b;
@@ -267,7 +338,9 @@ static void refresh(void) {
     /* Cursor to left edge, gbl_prompt and buffer */
     janet_buffer_push_u8(&b, '\r');
     janet_buffer_push_cstring(&b, gbl_prompt);
-    janet_buffer_push_bytes(&b, (uint8_t *) _buf, _len);
+//    janet_buffer_push_bytes(&b, (uint8_t *) _buf, _len);
+    do_br_match(_buf, _len, &b);
+
     /* Erase to right */
     janet_buffer_push_cstring(&b, "\x1b[0K");
     /* Move cursor to original position. */
@@ -768,10 +841,14 @@ static int line() {
                 break;
             case 1:     /* ctrl-a */
                 gbl_pos = 0;
+                set_brmatch();
                 refresh();
+                clr_brmatch();
                 break;
             case 2:     /* ctrl-b */
+                set_brmatch();
                 kleft();
+                clr_brmatch();
                 break;
             case 3:     /* ctrl-c */
                 gbl_cancel_current_repl_form = 1;
@@ -786,10 +863,14 @@ static int line() {
                 break;
             case 5:     /* ctrl-e */
                 gbl_pos = gbl_len;
+                set_brmatch();
                 refresh();
+                clr_brmatch();
                 break;
             case 6:     /* ctrl-f */
+                set_brmatch();
                 kright();
+                clr_brmatch();
                 break;
             case 7: /* ctrl-g */
                 kshowdoc();
