@@ -286,23 +286,20 @@ static void do_br_match(char *_buf, int _len, JanetBuffer *b) {
             k = gbl_pos + 1;
             kstop = _len;
         } else {
-            k = (gbl_pos - 1);
+            k = gbl_pos - 1;
             kstop = -1;
         }
-        int bs = 1;
+        int br_levels = 1;
         while (k != kstop) {
             if (_buf[k] == op_close) {
-                --bs;
+                --br_levels;
             } else if (_buf[k] == op_open) {
-                ++bs;
+                ++br_levels;
             }
-            if (bs == 0) {
-                if (k > 0)
-                    janet_buffer_push_bytes(b, (uint8_t *) _buf, k);
+            if (br_levels == 0) {
+                janet_buffer_push_bytes(b, (uint8_t *) _buf, k);
                 janet_buffer_push_cstring(b, ocb);
-                if (k < _len - 1) {
-                    janet_buffer_push_bytes(b, ((uint8_t *) _buf) + k + 1, _len - (k + 1));
-                }
+                janet_buffer_push_bytes(b, ((uint8_t *) _buf) + k + 1, _len - (k + 1));
                 return;
             }
             if (match_to_right) {
@@ -311,9 +308,8 @@ static void do_br_match(char *_buf, int _len, JanetBuffer *b) {
                 --k;
             }
         }
-        goto output_normal;
     }
-output_normal:
+output_normal:    
     janet_buffer_push_bytes(b, (uint8_t *) _buf, _len);
 }
 
