@@ -255,6 +255,9 @@ static void clr_brmatch() {
     do_brmatch = 0;
 }
 
+
+
+
 static void do_br_match(char *_buf, int _len, JanetBuffer *b) {
     if (do_brmatch) {
         char op_open, op_close;
@@ -290,11 +293,23 @@ static void do_br_match(char *_buf, int _len, JanetBuffer *b) {
             kstop = -1;
         }
         int br_levels = 1;
+        int instr = 0;
         while (k != kstop) {
-            if (_buf[k] == op_close) {
-                --br_levels;
-            } else if (_buf[k] == op_open) {
-                ++br_levels;
+            if (instr == 0) {
+                if (_buf[k] == '"') {
+                    instr = 1;
+                }
+            } else {
+                if ((_buf[k] == '"') && (k > 0) && (_buf[k-1] != '\\')) {
+                    instr = 0;
+                }
+            }
+            if (instr == 0) {
+                if (_buf[k]==op_close){
+                    --br_levels;
+                } else if (_buf[k]==op_open) {
+                    ++br_levels;
+                }
             }
             if (br_levels == 0) {
                 janet_buffer_push_bytes(b, (uint8_t *) _buf, k);
