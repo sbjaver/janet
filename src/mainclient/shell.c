@@ -359,6 +359,7 @@ static int br_match(char *buf, int len) {
                     } else if (long_open_delims == long_close_delims) {
                         long_open_delims = 1;
                         long_close_delims = 1;
+                        pos = pos + direction;
                         break;
                     } else {
                         long_close_delims++;
