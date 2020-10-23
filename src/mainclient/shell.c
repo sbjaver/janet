@@ -246,86 +246,145 @@ static void clear(void) {
     }
 }
 
-static int do_brmatch = 0;
-static void set_brmatch() {
-    do_brmatch = 1;
+
+#define BR_FORWARDS 1
+#define BR_BACKWARDS -1
+
+static int br_gbl_match = 0;
+
+static int br_do_match() {
+    return br_gbl_match;
 }
 
-static void clr_brmatch() {
-    do_brmatch = 0;
+static void br_matchon() {
+    br_gbl_match = 1;
 }
 
+static void br_matchoff() {
+    br_gbl_match = 0;
+}
 
-
-
-static void do_br_match(char *_buf, int _len, JanetBuffer *b) {
-    if (do_brmatch) {
-        char op_open, op_close;
-        int match_to_right = 0;
-        op_open = _buf[gbl_pos];
-        if (op_open == '(') {
-            op_close = ')';
-            match_to_right = 1;
-        } else if (op_open == ')') {
-            op_close = '(';
-        } else if (op_open == '[') {
-            op_close = ']';
-            match_to_right = 1;
-        } else if (op_open == ']') {
-            op_close = '[';
-        } else if (op_open == '{') {
-            op_close = '}';
-            match_to_right = 1;
-        } else if (op_open == '}') {
-            op_close = '{';
-        } else {
-            goto output_normal;
-        }
-        char ocb[32];
-        // snprintf(ocb,32,"\x1b[4m%c\x1b[0m",op_close); // underline
-        snprintf(ocb, 32, "\x1b[32m%c\x1b[0m", op_close); // color
-        int k, kstop;
-        if (match_to_right) {
-            k = gbl_pos + 1;
-            kstop = _len;
-        } else {
-            k = gbl_pos - 1;
-            kstop = -1;
-        }
-        int br_levels = 1;
-        int instr = 0;
-        while (k != kstop) {
-            if (instr == 0) {
-                if (_buf[k] == '"') {
-                    instr = 1;
+static int br_instring(char *buf, int len) {
+    int in_string = 0;
+    int in_long_string = 0;
+    int long_open_delims = 1;
+    int long_close_delims = 1;
+    int pos = 0;
+    while (pos < len && pos < gbl_pos) {
+        switch (buf[pos++]) {
+            case '\\':
+                if (in_string) pos++;
+                continue;
+            case '"':
+                in_string = !in_string;
+                continue;
+            case '`':
+                if (in_string) continue;
+                in_long_string = 1;
+                while (pos < len && pos < gbl_pos && buf[pos++] == '`') {
+                    long_open_delims++;
                 }
-            } else {
-                if ((_buf[k] == '"') && (k > 0) && (_buf[k-1] != '\\')) {
-                    instr = 0;
+                while (pos < len && pos < gbl_pos) {
+                    if (buf[pos++] != '`') {
+                        long_close_delims = 1;
+                    } else if (long_open_delims == long_close_delims) {
+                        in_long_string = 0;
+                        long_open_delims = 1;
+                        long_close_delims = 1;
+                        break;
+                    } else {
+                        long_close_delims++;
+                    }
                 }
-            }
-            if (instr == 0) {
-                if (_buf[k]==op_close){
-                    --br_levels;
-                } else if (_buf[k]==op_open) {
-                    ++br_levels;
-                }
-            }
-            if (br_levels == 0) {
-                janet_buffer_push_bytes(b, (uint8_t *) _buf, k);
-                janet_buffer_push_cstring(b, ocb);
-                janet_buffer_push_bytes(b, ((uint8_t *) _buf) + k + 1, _len - (k + 1));
-                return;
-            }
-            if (match_to_right) {
-                ++k;
-            } else {
-                --k;
-            }
+                continue;
+            default:
+                continue;
         }
     }
-output_normal:    
-    janet_buffer_push_bytes(b, (uint8_t *) _buf, _len);
+
+    return in_string || in_long_string;
+}
+
+static int br_match(char *buf, int len) {
+    int direction;
+    switch (buf[gbl_pos]) {
+        case '(':
+        case '[':
+        case '{':
+            direction = BR_FORWARDS;
+            break;
+        case ')':
+        case ']':
+        case '}':
+            direction = BR_BACKWARDS;
+            break;
+        default:
+            return -1;
+    }
+
+    if (br_instring(buf, len)) return -1;
+
+    char selected = buf[gbl_pos];
+    char matching = selected + direction;
+
+    int match_count = 1;
+    int in_string = 0;
+    int pos = gbl_pos + direction;
+    while (pos >= 0 && pos < len) {
+        switch (buf[pos]) {
+            case '\\':
+                pos = pos + direction;
+                if (in_string && direction == BR_FORWARDS) pos = pos + direction;
+                continue;
+            case '"':
+                pos = pos + direction;
+                if (direction == BR_FORWARDS) {
+                    in_string = !in_string;
+                } else {
+                    if (pos >= 0 && buf[pos] != '\\') in_string = !in_string;
+                }
+                continue;
+            case '`':
+                pos = pos + direction;
+                if (in_string) continue;
+                int long_open_delims = 1;
+                int long_close_delims = 1;
+                while (pos >= 0 && pos < len && buf[pos] == '`') {
+                    pos = pos + direction;
+                    long_open_delims++;
+                }
+                while (pos >= 0 && pos < len) {
+                    if (buf[pos] != '`') {
+                        long_close_delims = 1;
+                    } else if (long_open_delims == long_close_delims) {
+                        long_open_delims = 1;
+                        long_close_delims = 1;
+                        pos = pos + direction;
+                        break;
+                    } else {
+                        long_close_delims++;
+                    }
+                    pos = pos + direction;
+                }
+                continue;
+            default:
+                if (in_string) {
+                    pos = pos + direction;
+                    continue;
+                }
+                break;
+        }
+
+        if (buf[pos] == selected) {
+            match_count++;
+        } else if (buf[pos] == matching) {
+            match_count--;
+            if (match_count == 0) break;
+        }
+        pos = pos + direction;
+    }
+
+    return (match_count == 0) ? pos : -1;
 }
 
 static void refresh(void) {
@@ -349,8 +408,18 @@ static void refresh(void) {
     /* Cursor to left edge, gbl_prompt and buffer */
     janet_buffer_push_u8(&b, '\r');
     janet_buffer_push_cstring(&b, gbl_prompt);
-//    janet_buffer_push_bytes(&b, (uint8_t *) _buf, _len);
-    do_br_match(_buf, _len, &b);
+
+    int match_pos = (br_do_match()) ? br_match(_buf, _len) : -1;
+    if (match_pos == -1) {
+        janet_buffer_push_bytes(&b, (uint8_t *) _buf, _len);
+    } else {
+        char ocb[32];
+        // snprintf(ocb,32,"\x1b[4m%c\x1b[0m",op_close); // underline
+        snprintf(ocb, 32, "\x1b[32m%c\x1b[0m", _buf[match_pos]); // color
+        janet_buffer_push_bytes(&b, (uint8_t *) _buf, match_pos);
+        janet_buffer_push_cstring(&b, ocb);
+        janet_buffer_push_bytes(&b, ((uint8_t *) _buf) + match_pos + 1, _len - (match_pos + 1));
+    }
 
     /* Erase to right */
     janet_buffer_push_cstring(&b, "\x1b[0K");
@@ -852,14 +921,14 @@ static int line() {
                 break;
             case 1:     /* ctrl-a */
                 gbl_pos = 0;
-                set_brmatch();
+                br_matchon();
                 refresh();
-                clr_brmatch();
+                br_matchoff();
                 break;
             case 2:     /* ctrl-b */
-                set_brmatch();
+                br_matchon();
                 kleft();
-                clr_brmatch();
+                br_matchoff();
                 break;
             case 3:     /* ctrl-c */
                 gbl_cancel_current_repl_form = 1;
@@ -874,14 +943,14 @@ static int line() {
                 break;
             case 5:     /* ctrl-e */
                 gbl_pos = gbl_len;
-                set_brmatch();
+                br_matchon();
                 refresh();
-                clr_brmatch();
+                br_matchoff();
                 break;
             case 6:     /* ctrl-f */
-                set_brmatch();
+                br_matchon();
                 kright();
-                clr_brmatch();
+                br_matchoff();
                 break;
             case 7: /* ctrl-g */
                 kshowdoc();
@@ -984,10 +1053,14 @@ static int line() {
                                 historymove(-1);
                                 break;
                             case 'C': /* Right */
+                                br_matchon();
                                 kright();
+                                br_matchoff();
                                 break;
                             case 'D': /* Left */
+                                br_matchon();
                                 kleft();
+                                br_matchoff();
                                 break;
                             case 'H': /* Home */
                                 gbl_pos = 0;
