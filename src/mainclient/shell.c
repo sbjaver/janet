@@ -307,16 +307,23 @@ static int br_instring(char *buf, int len) {
 
 static int br_match(char *buf, int len) {
     int direction;
+    int chroff = 1;
     switch (buf[gbl_pos]) {
         case '(':
+            direction = BR_FORWARDS;
+            break;
         case '[':
         case '{':
             direction = BR_FORWARDS;
+            chroff = 2;
             break;
         case ')':
+            direction = BR_BACKWARDS;
+            break;
         case ']':
         case '}':
             direction = BR_BACKWARDS;
+            chroff = 2;
             break;
         default:
             return -1;
@@ -325,7 +332,7 @@ static int br_match(char *buf, int len) {
     if (br_instring(buf, len)) return -1;
 
     char selected = buf[gbl_pos];
-    char matching = selected + direction;
+    char matching = selected + direction*chroff;
 
     int match_count = 1;
     int in_string = 0;
