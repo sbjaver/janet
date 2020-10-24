@@ -141,6 +141,7 @@ static struct termios gbl_termios_start;
 static JanetByteView gbl_matches[JANET_MATCH_MAX];
 static int gbl_match_count = 0;
 static int gbl_lines_below = 0;
+static int gbl_enable_delim_match = 1;
 
 /* Put a lock around this global state so we don't screw up
  * the terminal in a multithreaded situation */
@@ -300,7 +301,7 @@ static int br_escaped(char *buf, int len) {
     return in_comment || in_string || in_long_string;
 }
 
-static int br_match(char *buf, int len) {
+static int match_delimiter_at_cursor(char *buf, int len) {
     int direction;
     int offset;
     switch (buf[gbl_pos]) {
@@ -439,16 +440,20 @@ static void refresh(void) {
     janet_buffer_push_u8(&b, '\r');
     janet_buffer_push_cstring(&b, gbl_prompt);
 
-    int match_pos = br_match(_buf, _len);
-    if (match_pos == -1) {
-        janet_buffer_push_bytes(&b, (uint8_t *) _buf, _len);
+    if (gbl_enable_delim_match) {
+        int match_pos = match_delimiter_at_cursor(_buf, _len);
+        if (match_pos == -1) {
+            janet_buffer_push_bytes(&b, (uint8_t *) _buf, _len);
+        } else {
+            char ocb[32];
+            // snprintf(ocb,32,"\x1b[4m%c\x1b[0m",op_close); // underline
+            snprintf(ocb, 32, "\x1b[32m%c\x1b[0m", _buf[match_pos]); // color
+            janet_buffer_push_bytes(&b, (uint8_t *) _buf, match_pos);
+            janet_buffer_push_cstring(&b, ocb);
+            janet_buffer_push_bytes(&b, ((uint8_t *) _buf) + match_pos + 1, _len - (match_pos + 1));
+        }
     } else {
-        char ocb[32];
-        // snprintf(ocb,32,"\x1b[4m%c\x1b[0m",op_close); // underline
-        snprintf(ocb, 32, "\x1b[32m%c\x1b[0m", _buf[match_pos]); // color
-        janet_buffer_push_bytes(&b, (uint8_t *) _buf, match_pos);
-        janet_buffer_push_cstring(&b, ocb);
-        janet_buffer_push_bytes(&b, ((uint8_t *) _buf) + match_pos + 1, _len - (match_pos + 1));
+        janet_buffer_push_bytes(&b, (uint8_t *) _buf, _len);
     }
 
     /* Erase to right */
@@ -927,6 +932,12 @@ static void kshowcomp(void) {
     }
 }
 
+static void refresh_with_no_highlight() {
+    gbl_enable_delim_match = 0;
+    refresh();
+    gbl_enable_delim_match = 1;
+}
+
 static int line() {
     gbl_cols = getcols();
     gbl_plen = 0;
@@ -958,6 +969,7 @@ static int line() {
                 break;
             case 3:     /* ctrl-c */
                 gbl_cancel_current_repl_form = 1;
+                refresh_with_no_highlight();
                 clearlines();
                 return -1;
             case 4:     /* ctrl-d, eof */
@@ -996,6 +1008,7 @@ static int line() {
                 refresh();
                 break;
             case 13:    /* enter */
+                refresh_with_no_highlight();
                 clearlines();
                 return 0;
             case 14: /* ctrl-n */
