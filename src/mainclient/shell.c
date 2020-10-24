@@ -249,7 +249,8 @@ static void clear(void) {
 #define BR_FORWARDS 1
 #define BR_BACKWARDS -1
 
-static int br_instring(char *buf, int len) {
+static int br_escaped(char *buf, int len) {
+    int in_comment = 0;
     int in_string = 0;
     int in_long_string = 0;
     int long_open_delims = 1;
@@ -257,6 +258,15 @@ static int br_instring(char *buf, int len) {
     int pos = 0;
     while (pos < len && pos < gbl_pos) {
         switch (buf[pos++]) {
+            case '#':
+                if (in_string) continue;
+                in_comment = 1;
+                while (pos < len && pos < gbl_pos) {
+                    if (buf[pos++] != '\n') continue;
+                    in_comment = 0;
+                    break;
+                }
+                continue;
             case '\\':
                 if (in_string) pos++;
                 continue;
@@ -287,7 +297,7 @@ static int br_instring(char *buf, int len) {
         }
     }
 
-    return in_string || in_long_string;
+    return in_comment || in_string || in_long_string;
 }
 
 static int br_match(char *buf, int len) {
@@ -316,7 +326,7 @@ static int br_match(char *buf, int len) {
             return -1;
     }
 
-    if (br_instring(buf, len)) return -1;
+    if (br_escaped(buf, len)) return -1;
 
     char selected = buf[gbl_pos];
     char matching = selected + (direction * offset);
@@ -326,6 +336,32 @@ static int br_match(char *buf, int len) {
     int pos = gbl_pos + direction;
     while (pos >= 0 && pos < len) {
         switch (buf[pos]) {
+            case '#':
+                pos += direction;
+                if (direction == BR_BACKWARDS) continue;
+                while (pos >= 0 && pos < len) {
+                    if (buf[pos] == '\n') {
+                        pos += direction;
+                        break;
+                    }
+                    pos += direction;
+                }
+                continue;
+            case '\n':
+                pos += direction;
+                if (direction == BR_FORWARDS) continue;
+                int old_pos = pos;
+                while (pos >= 0 && pos < len) {
+                    if (buf[pos] == '\n' || pos == 0) {
+                        pos = old_pos;
+                        break;
+                    } else if (buf[pos] == '#') {
+                        pos += direction;
+                        break;
+                    }
+                    pos += direction;
+                }
+                continue;
             case '\\':
                 pos += direction;
                 if (in_string && direction == BR_FORWARDS) pos += direction;
