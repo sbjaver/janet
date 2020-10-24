@@ -246,23 +246,8 @@ static void clear(void) {
     }
 }
 
-
 #define BR_FORWARDS 1
 #define BR_BACKWARDS -1
-
-static int br_gbl_match = 0;
-
-static int br_do_match() {
-    return br_gbl_match;
-}
-
-static void br_matchon() {
-    br_gbl_match = 1;
-}
-
-static void br_matchoff() {
-    br_gbl_match = 0;
-}
 
 static int br_instring(char *buf, int len) {
     int in_string = 0;
@@ -307,23 +292,25 @@ static int br_instring(char *buf, int len) {
 
 static int br_match(char *buf, int len) {
     int direction;
-    int chroff = 1;
+    int offset;
     switch (buf[gbl_pos]) {
         case '(':
             direction = BR_FORWARDS;
+            offset = 1;
             break;
         case '[':
         case '{':
             direction = BR_FORWARDS;
-            chroff = 2;
+            offset = 2;
             break;
         case ')':
             direction = BR_BACKWARDS;
+            offset = 1;
             break;
         case ']':
         case '}':
             direction = BR_BACKWARDS;
-            chroff = 2;
+            offset = 2;
             break;
         default:
             return -1;
@@ -332,7 +319,7 @@ static int br_match(char *buf, int len) {
     if (br_instring(buf, len)) return -1;
 
     char selected = buf[gbl_pos];
-    char matching = selected + direction*chroff;
+    char matching = selected + (direction * offset);
 
     int match_count = 1;
     int in_string = 0;
@@ -340,11 +327,11 @@ static int br_match(char *buf, int len) {
     while (pos >= 0 && pos < len) {
         switch (buf[pos]) {
             case '\\':
-                pos = pos + direction;
-                if (in_string && direction == BR_FORWARDS) pos = pos + direction;
+                pos += direction;
+                if (in_string && direction == BR_FORWARDS) pos += direction;
                 continue;
             case '"':
-                pos = pos + direction;
+                pos += direction;
                 if (direction == BR_FORWARDS) {
                     in_string = !in_string;
                 } else {
@@ -352,12 +339,12 @@ static int br_match(char *buf, int len) {
                 }
                 continue;
             case '`':
-                pos = pos + direction;
+                pos += direction;
                 if (in_string) continue;
                 int long_open_delims = 1;
                 int long_close_delims = 1;
                 while (pos >= 0 && pos < len && buf[pos] == '`') {
-                    pos = pos + direction;
+                    pos += direction;
                     long_open_delims++;
                 }
                 while (pos >= 0 && pos < len) {
@@ -366,17 +353,17 @@ static int br_match(char *buf, int len) {
                     } else if (long_open_delims == long_close_delims) {
                         long_open_delims = 1;
                         long_close_delims = 1;
-                        pos = pos + direction;
+                        pos += direction;
                         break;
                     } else {
                         long_close_delims++;
                     }
-                    pos = pos + direction;
+                    pos += direction;
                 }
                 continue;
             default:
                 if (in_string) {
-                    pos = pos + direction;
+                    pos += direction;
                     continue;
                 }
                 break;
@@ -388,7 +375,7 @@ static int br_match(char *buf, int len) {
             match_count--;
             if (match_count == 0) break;
         }
-        pos = pos + direction;
+        pos += direction;
     }
 
     return (match_count == 0) ? pos : -1;
@@ -416,7 +403,7 @@ static void refresh(void) {
     janet_buffer_push_u8(&b, '\r');
     janet_buffer_push_cstring(&b, gbl_prompt);
 
-    int match_pos = (br_do_match()) ? br_match(_buf, _len) : -1;
+    int match_pos = br_match(_buf, _len);
     if (match_pos == -1) {
         janet_buffer_push_bytes(&b, (uint8_t *) _buf, _len);
     } else {
@@ -928,14 +915,10 @@ static int line() {
                 break;
             case 1:     /* ctrl-a */
                 gbl_pos = 0;
-                br_matchon();
                 refresh();
-                br_matchoff();
                 break;
             case 2:     /* ctrl-b */
-                br_matchon();
                 kleft();
-                br_matchoff();
                 break;
             case 3:     /* ctrl-c */
                 gbl_cancel_current_repl_form = 1;
@@ -950,14 +933,10 @@ static int line() {
                 break;
             case 5:     /* ctrl-e */
                 gbl_pos = gbl_len;
-                br_matchon();
                 refresh();
-                br_matchoff();
                 break;
             case 6:     /* ctrl-f */
-                br_matchon();
                 kright();
-                br_matchoff();
                 break;
             case 7: /* ctrl-g */
                 kshowdoc();
@@ -1060,14 +1039,10 @@ static int line() {
                                 historymove(-1);
                                 break;
                             case 'C': /* Right */
-                                br_matchon();
                                 kright();
-                                br_matchoff();
                                 break;
                             case 'D': /* Left */
-                                br_matchon();
                                 kleft();
-                                br_matchoff();
                                 break;
                             case 'H': /* Home */
                                 gbl_pos = 0;
