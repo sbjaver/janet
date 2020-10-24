@@ -338,7 +338,7 @@ static int br_match(char *buf, int len) {
         switch (buf[pos]) {
             case '#':
                 pos += direction;
-                if (direction == BR_BACKWARDS) continue;
+                if (in_string || direction == BR_BACKWARDS) continue;
                 while (pos >= 0 && pos < len) {
                     if (buf[pos] == '\n') {
                         pos += direction;
@@ -349,7 +349,7 @@ static int br_match(char *buf, int len) {
                 continue;
             case '\n':
                 pos += direction;
-                if (direction == BR_FORWARDS) continue;
+                if (in_string || direction == BR_FORWARDS) continue;
                 int old_pos = pos;
                 while (pos >= 0 && pos < len) {
                     if (buf[pos] == '\n' || pos == 0) {
